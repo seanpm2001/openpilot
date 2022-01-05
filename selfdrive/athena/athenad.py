@@ -49,7 +49,7 @@ dispatcher["echo"] = lambda s: s
 recv_queue: Any = queue.Queue()
 send_queue: Any = queue.Queue()
 upload_queue: Any = queue.Queue()
-secondary_send_queue: Any = queue.Queue()
+low_priority_send_queue: Any = queue.Queue()
 log_recv_queue: Any = queue.Queue()
 cancelled_uploads: Any = set()
 UploadItem = namedtuple('UploadItem', ['path', 'url', 'headers', 'created_at', 'id', 'retry_count', 'current', 'progress'], defaults=(0, False, 0))
@@ -443,7 +443,7 @@ def log_handler(end_event):
               "jsonrpc": "2.0",
               "id": log_entry
             }
-            secondary_send_queue.put_nowait(json.dumps(jsonrpc))
+            low_priority_send_queue.put_nowait(json.dumps(jsonrpc))
             curr_log = log_entry
         except OSError:
           pass  # file could be deleted by log rotation
@@ -492,13 +492,12 @@ def stat_handler(end_event):
               "jsonrpc": "2.0",
               "id": stat_entry
             }
-            secondary_send_queue.put_nowait(json.dumps(jsonrpc))
+            low_priority_send_queue.put_nowait(json.dumps(jsonrpc))
           os.remove(stat_path)
         last_scan = curr_scan
 
     except Exception:
       cloudlog.exception("athena.stat_handler.exception")
-
 
 
 def ws_proxy_recv(ws, local_sock, ssock, end_event, global_end_event):
@@ -573,7 +572,7 @@ def ws_send(ws, end_event):
       try:
         data = send_queue.get_nowait()
       except queue.Empty:
-        data = secondary_send_queue.get(timeout=1)
+        data = low_priority_send_queue.get(timeout=1)
       for i in range(0, len(data), WS_FRAME_SIZE):
         frame = data[i:i+WS_FRAME_SIZE]
         last = i + WS_FRAME_SIZE >= len(data)
